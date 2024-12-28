@@ -16,6 +16,7 @@ interface DiagramPoint {
   position: number;
   shear: number;
   moment: number;
+  deflection: number;
 }
 
 const BeamAnalysis = () => {
@@ -23,6 +24,8 @@ const BeamAnalysis = () => {
   const [loads, setLoads] = useState<Load[]>([
     { id: 1, type: 'point', position: 2.5, magnitude: -50, length: 0 }, // Negative magnitude for downward load
   ]);
+  const [startSupportPosition, setStartSupportPosition] = useState<number>(0); // Position of the start support
+  const [endSupportPosition, setEndSupportPosition] = useState<number>(5); // Position of the end support
   const [startSupport, setStartSupport] = useState<'pin' | 'roller' | 'fixed'>('pin');
   const [endSupport, setEndSupport] = useState<'pin' | 'roller' | 'fixed'>('roller');
 
@@ -36,18 +39,18 @@ const BeamAnalysis = () => {
     loads.forEach(load => {
       switch (load.type) {
         case 'point':
-          reactionB += (Math.abs(load.magnitude) * load.position) / beamLength;
-          reactionA += Math.abs(load.magnitude) - (Math.abs(load.magnitude) * load.position) / beamLength;
+          reactionB += (Math.abs(load.magnitude) * (load.position - startSupportPosition)) / (endSupportPosition - startSupportPosition);
+          reactionA += Math.abs(load.magnitude) - (Math.abs(load.magnitude) * (load.position - startSupportPosition)) / (endSupportPosition - startSupportPosition);
           break;
         case 'distributed':
           const distributedForce = Math.abs(load.magnitude) * load.length;
           const centerOfLoad = load.position + load.length / 2;
-          reactionB += (distributedForce * centerOfLoad) / beamLength;
-          reactionA += distributedForce - (distributedForce * centerOfLoad) / beamLength;
+          reactionB += (distributedForce * (centerOfLoad - startSupportPosition)) / (endSupportPosition - startSupportPosition);
+          reactionA += distributedForce - (distributedForce * (centerOfLoad - startSupportPosition)) / (endSupportPosition - startSupportPosition);
           break;
         case 'moment':
-          reactionA -= load.magnitude / beamLength;
-          reactionB += load.magnitude / beamLength;
+          reactionA -= load.magnitude / (endSupportPosition - startSupportPosition);
+          reactionB += load.magnitude / (endSupportPosition - startSupportPosition);
           break;
       }
     });
@@ -57,7 +60,7 @@ const BeamAnalysis = () => {
     if (endSupport === 'roller') reactionB = 0; // Example adjustment
 
     return { reactionA: Number(reactionA.toFixed(3)), reactionB: Number(reactionB.toFixed(3)) };
-  }, [loads, beamLength, startSupport, endSupport]);
+  }, [loads, startSupportPosition, endSupportPosition, startSupport, endSupport]);
 
   React.useEffect(() => {
     setReactions(calculateReactions());
@@ -109,6 +112,33 @@ const BeamAnalysis = () => {
     return Number(moment.toFixed(3));
   }, [loads, reactions]);
 
+  // Calculate deflection at a position x
+  const calculateDeflection = useCallback((x: number): number => {
+    let deflection = 0;
+    const E = 200e9; // Young's Modulus (Pa)
+    const I = 8.33e-6; // Moment of Inertia (m^4)
+
+    loads.forEach(load => {
+      switch (load.type) {
+        case 'point':
+          if (x > load.position) {
+            const a = load.position;
+            const b = beamLength - a;
+            deflection -= (load.magnitude * b * x * (beamLength ** 2 - b ** 2 - x ** 2)) / (6 * E * I * beamLength);
+          }
+          break;
+        case 'distributed':
+          if (x > load.position) {
+            const effectiveLength = Math.min(x - load.position, load.length);
+            deflection -= (load.magnitude * effectiveLength ** 3) / (24 * E * I);
+          }
+          break;
+      }
+    });
+
+    return Number(deflection.toFixed(6));
+  }, [loads, beamLength]);
+
   const generateDiagramData = useCallback((): DiagramPoint[] => {
     const points = 100;
     const dx = beamLength / points;
@@ -117,10 +147,11 @@ const BeamAnalysis = () => {
       return {
         position: Number(x.toFixed(3)),
         shear: calculateShear(x),
-        moment: calculateMoment(x)
+        moment: calculateMoment(x),
+        deflection: calculateDeflection(x)
       };
     });
-  }, [beamLength, calculateShear, calculateMoment]);
+  }, [beamLength, calculateShear, calculateMoment, calculateDeflection]);
 
   const diagramData = generateDiagramData();
 
@@ -164,6 +195,19 @@ const BeamAnalysis = () => {
         </div>
 
         <div>
+          <label className="block text-sm font-medium mb-1">Start Support Position (m)</label>
+          <input
+            type="number"
+            value={startSupportPosition}
+            onChange={(e) => setStartSupportPosition(Number(e.target.value))}
+            min="0"
+            max={beamLength}
+            className="w-full max-w-xs px-3 py-2 border rounded-md"
+            placeholder="Enter start support position"
+          />
+        </div>
+
+        <div>
           <label className="block text-sm font-medium mb-1">Start Support</label>
           <select
             value={startSupport}
@@ -174,6 +218,19 @@ const BeamAnalysis = () => {
             <option value="roller">Roller</option>
             <option value="fixed">Fixed</option>
           </select>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1">End Support Position (m)</label>
+          <input
+            type="number"
+            value={endSupportPosition}
+            onChange={(e) => setEndSupportPosition(Number(e.target.value))}
+            min="0"
+            max={beamLength}
+            className="w-full max-w-xs px-3 py-2 border rounded-md"
+            placeholder="Enter end support position"
+          />
         </div>
 
         <div>
@@ -193,7 +250,6 @@ const BeamAnalysis = () => {
           <h3 className="text-lg font-medium">Loads</h3>
           {loads.map(load => (
             <div key={load.id} className="grid grid-cols-5 gap-2 items-center">
-              <label htmlFor={`load-type-${load.id}`} className="sr-only">Load Type</label>
               <label htmlFor={`load-type-${load.id}`} className="sr-only">Load Type</label>
               <select
                 id={`load-type-${load.id}`}
@@ -274,6 +330,21 @@ const BeamAnalysis = () => {
                 <YAxis />
                 <Tooltip />
                 <Line type="monotone" dataKey="moment" stroke="#dc2626" />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div>
+          <h3 className="text-lg font-medium mb-2">Deflection Diagram</h3>
+          <div className="w-full h-[300px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={diagramData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="position" />
+                <YAxis />
+                <Tooltip />
+                <Line type="monotone" dataKey="deflection" stroke="#16a34a" />
               </LineChart>
             </ResponsiveContainer>
           </div>
