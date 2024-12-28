@@ -2,6 +2,7 @@
 import React, { useState, useCallback } from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 import { Trash2 } from 'lucide-react';
+import { ResponsiveContainer } from 'recharts';
 
 
 // Define TypeScript interfaces for better type safety
@@ -65,14 +66,14 @@ const BeamAnalysis = () => {
     if (validateBeamLength(value)) {
       setBeamLength(value);
       // Validate existing loads with new beam length
-      const invalidLoads = loads.filter(load => 
-        load.position > value || 
+      const invalidLoads = loads.filter(load =>
+        load.position > value ||
         (load.type === 'distributed' && (load.position + load.length) > value)
       );
       if (invalidLoads.length > 0) {
         alert("Some loads were removed as they no longer fit within the new beam length.");
-        setLoads(loads.filter(load => 
-          load.position <= value && 
+        setLoads(loads.filter(load =>
+          load.position <= value &&
           (load.type !== 'distributed' || (load.position + load.length) <= value)
         ));
       }
@@ -148,7 +149,7 @@ const BeamAnalysis = () => {
       const updatedLoad = { ...load, [field]: field === 'type' ? value : Number(value) };
       return updatedLoad;
     });
-    
+
     const updatedLoad = updatedLoads.find(load => load.id === id);
     if (updatedLoad && validateLoad(updatedLoad)) {
       setLoads(updatedLoads);
@@ -175,14 +176,14 @@ const BeamAnalysis = () => {
             className="w-full max-w-xs px-3 py-2 border rounded-md"
             placeholder="Enter beam length"
             title="Beam Length"
-            />
+          />
         </div>
 
         <div className="space-y-4">
           <h3 className="text-lg font-medium">Loads</h3>
           {loads.map((load) => (
             <div key={load.id} className="grid grid-cols-5 gap-2 items-center">
-             <select
+              <select
                 value={load.type}
                 onChange={(e) => updateLoad(load.id, 'type', e.target.value as Load['type'])}
                 className="px-3 py-2 border rounded-md"
@@ -244,38 +245,48 @@ const BeamAnalysis = () => {
         <div className="w-full space-y-6 items-center">
           <div>
             <h3 className="text-lg font-medium mb-2">Shear Force Diagram</h3>
-            <LineChart width={800} height={300} data={diagramData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis 
-                dataKey="position" 
-                label={{ value: 'Position (m)', position: 'bottom' }} 
-              />
-              <YAxis 
-                label={{ value: 'Shear Force (kN)', angle: -90, position: 'left' }} 
-              />
-              <Tooltip formatter={(value) => [`${value} kN`, 'Shear Force']} />
-              <Line type="monotone" dataKey="shear" stroke="#2563eb" dot={false} />
-            </LineChart>
+            <div className="w-full h-[300px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={diagramData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="position"
+                    label={{ value: 'Position (m)', position: 'bottom' }}
+                  />
+                  <YAxis
+                    label={{ value: 'Shear Force (kN)', angle: -90, position: 'left' }}
+                  />
+                  <Tooltip formatter={(value) => [`${value} kN`, 'Shear Force']} />
+                  <Line type="monotone" dataKey="shear" stroke="#2563eb" dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
           </div>
+
+
           <div>
             <h3 className="text-lg font-medium mb-2">Bending Moment Diagram</h3>
-            <LineChart width={800} height={300} data={diagramData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis 
-                dataKey="position" 
-                label={{ value: 'Position (m)', position: 'bottom' }} 
-              />
-              <YAxis 
-                label={{ value: 'Bending Moment (kN·m)', angle: -90, position: 'left' }} 
-              />
-              <Tooltip formatter={(value) => [`${value} kN·m`, 'Bending Moment']} />
-              <Line type="monotone" dataKey="moment" stroke="#dc2626" dot={false} />
-            </LineChart>
+            <div className="w-full h-[300px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={diagramData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="position"
+                    label={{ value: 'Position (m)', position: 'bottom' }}
+                  />
+                  <YAxis
+                    label={{ value: 'Bending Moment (kN·m)', angle: -90, position: 'left' }}
+                  />
+                  <Tooltip formatter={(value) => [`${value} kN·m`, 'Bending Moment']} />
+                  <Line type="monotone" dataKey="moment" stroke="#dc2626" dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
           </div>
         </div>
       </div>
     </div>
-  );
-};
+    );
+  };
 
 export default BeamAnalysis;
