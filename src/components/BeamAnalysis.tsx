@@ -21,9 +21,7 @@ interface DiagramPoint {
 const BeamAnalysis = () => {
   const [beamLength, setBeamLength] = useState<number>(5);
   const [loads, setLoads] = useState<Load[]>([
-    { id: 1, type: 'point', position: 2, magnitude: -10, length: 0 },
-    { id: 2, type: 'distributed', position: 1, magnitude: -5, length: 2 },
-    { id: 3, type: 'moment', position: 3, magnitude: 15, length: 0 }
+    { id: 1, type: 'point', position: 2.5, magnitude: 50, length: 0 },
   ]);
 
   // Calculate support reactions for a simply supported beam
@@ -101,7 +99,7 @@ const BeamAnalysis = () => {
     return Number(moment.toFixed(3));
   }, [loads, reactions]);
 
-  // Generate diagram data
+  
   const generateDiagramData = useCallback((): DiagramPoint[] => {
     const points = 100;
     const dx = beamLength / points;
