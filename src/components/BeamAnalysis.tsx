@@ -21,8 +21,12 @@ interface DiagramPoint {
 const BeamAnalysis = () => {
   const [beamLength, setBeamLength] = useState<number>(5);
   const [loads, setLoads] = useState<Load[]>([
-    { id: 1, type: 'point', position: 2.5, magnitude: 50, length: 0 },
+    { id: 1, type: 'point', position: 2.5, magnitude: -50, length: 0 }, // Negative magnitude for downward load
   ]);
+  const [startSupport, setStartSupport] = useState<'pin' | 'roller' | 'fixed'>('pin');
+  const [endSupport, setEndSupport] = useState<'pin' | 'roller' | 'fixed'>('roller');
+
+  const [reactions, setReactions] = useState<{ reactionA: number; reactionB: number }>({ reactionA: 0, reactionB: 0 });
 
   // Calculate support reactions for a simply supported beam
   const calculateReactions = useCallback(() => {
@@ -32,26 +36,32 @@ const BeamAnalysis = () => {
     loads.forEach(load => {
       switch (load.type) {
         case 'point':
-          reactionB += (load.magnitude * load.position) / beamLength;
-          reactionA += load.magnitude - (load.magnitude * load.position) / beamLength;
+          reactionB += (Math.abs(load.magnitude) * load.position) / beamLength;
+          reactionA += Math.abs(load.magnitude) - (Math.abs(load.magnitude) * load.position) / beamLength;
           break;
         case 'distributed':
-          const distributedForce = load.magnitude * load.length;
+          const distributedForce = Math.abs(load.magnitude) * load.length;
           const centerOfLoad = load.position + load.length / 2;
           reactionB += (distributedForce * centerOfLoad) / beamLength;
           reactionA += distributedForce - (distributedForce * centerOfLoad) / beamLength;
           break;
         case 'moment':
-          reactionA += load.magnitude / beamLength;
-          reactionB -= load.magnitude / beamLength;
+          reactionA -= load.magnitude / beamLength;
+          reactionB += load.magnitude / beamLength;
           break;
       }
     });
 
-    return { reactionA: Number(reactionA.toFixed(3)), reactionB: Number(reactionB.toFixed(3)) };
-  }, [loads, beamLength]);
+    // Adjust reactions based on support types
+    if (startSupport === 'fixed') reactionA = -reactionB; // Example adjustment
+    if (endSupport === 'roller') reactionB = 0; // Example adjustment
 
-  const reactions = calculateReactions();
+    return { reactionA: Number(reactionA.toFixed(3)), reactionB: Number(reactionB.toFixed(3)) };
+  }, [loads, beamLength, startSupport, endSupport]);
+
+  React.useEffect(() => {
+    setReactions(calculateReactions());
+  }, [calculateReactions]);
 
   // Calculate shear force at a position x
   const calculateShear = useCallback((x: number): number => {
@@ -60,12 +70,12 @@ const BeamAnalysis = () => {
     loads.forEach(load => {
       switch (load.type) {
         case 'point':
-          if (x > load.position) shear += load.magnitude;
+          if (x > load.position) shear -= Math.abs(load.magnitude); // Negative for downward load
           break;
         case 'distributed':
           if (x > load.position) {
             const effectiveLength = Math.min(x - load.position, load.length);
-            shear += load.magnitude * effectiveLength;
+            shear -= load.magnitude * effectiveLength; // Negative for downward load
           }
           break;
       }
@@ -81,16 +91,16 @@ const BeamAnalysis = () => {
     loads.forEach(load => {
       switch (load.type) {
         case 'point':
-          if (x > load.position) moment += load.magnitude * (x - load.position);
+          if (x > load.position) moment -= Math.abs(load.magnitude) * (x - load.position); // Negative for downward load
           break;
         case 'distributed':
           if (x > load.position) {
             const effectiveLength = Math.min(x - load.position, load.length);
-            moment += load.magnitude * effectiveLength * (effectiveLength / 2);
+            moment -= load.magnitude * effectiveLength * (effectiveLength / 2); // Negative for downward load
           }
           break;
         case 'moment':
-          if (x > load.position) moment += load.magnitude;
+          if (x > load.position) moment -= load.magnitude; // Negative moment for consistency
           break;
       }
     });
@@ -99,7 +109,6 @@ const BeamAnalysis = () => {
     return Number(moment.toFixed(3));
   }, [loads, reactions]);
 
-  
   const generateDiagramData = useCallback((): DiagramPoint[] => {
     const points = 100;
     const dx = beamLength / points;
@@ -120,7 +129,7 @@ const BeamAnalysis = () => {
       id: Math.max(0, ...loads.map(l => l.id)) + 1,
       type: 'point',
       position: 0,
-      magnitude: 0,
+      magnitude: -10, // Default downward load
       length: 0
     };
     setLoads([...loads, newLoad]);
@@ -154,10 +163,37 @@ const BeamAnalysis = () => {
           />
         </div>
 
+        <div>
+          <label className="block text-sm font-medium mb-1">Start Support</label>
+          <select
+            value={startSupport}
+            onChange={(e) => setStartSupport(e.target.value as 'pin' | 'roller' | 'fixed')}
+            className="w-full max-w-xs px-3 py-2 border rounded-md"
+          >
+            <option value="pin">Pin</option>
+            <option value="roller">Roller</option>
+            <option value="fixed">Fixed</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1">End Support</label>
+          <select
+            value={endSupport}
+            onChange={(e) => setEndSupport(e.target.value as 'pin' | 'roller' | 'fixed')}
+            className="w-full max-w-xs px-3 py-2 border rounded-md"
+          >
+            <option value="pin">Pin</option>
+            <option value="roller">Roller</option>
+            <option value="fixed">Fixed</option>
+          </select>
+        </div>
+
         <div className="space-y-4">
           <h3 className="text-lg font-medium">Loads</h3>
           {loads.map(load => (
             <div key={load.id} className="grid grid-cols-5 gap-2 items-center">
+              <label htmlFor={`load-type-${load.id}`} className="sr-only">Load Type</label>
               <label htmlFor={`load-type-${load.id}`} className="sr-only">Load Type</label>
               <select
                 id={`load-type-${load.id}`}
@@ -183,7 +219,7 @@ const BeamAnalysis = () => {
                 value={load.magnitude}
                 onChange={(e) => updateLoad(load.id, 'magnitude', e.target.value)}
                 className="px-3 py-2 border rounded-md"
-                placeholder="Magnitude"
+                placeholder="Magnitude (Negative for downward load)"
               />
               {load.type === 'distributed' && (
                 <input
