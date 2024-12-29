@@ -68,76 +68,254 @@ const BeamAnalysis = () => {
 
   // Calculate shear force at a position x
   const calculateShear = useCallback((x: number): number => {
-    let shear = reactions.reactionA;
+    let shear = 0;
+
+    if (x >= startSupportPosition) {
+      shear += reactions.reactionA;
+    }
+
+    if (x >= endSupportPosition) {
+      shear += reactions.reactionB;
+    }
 
     loads.forEach(load => {
       switch (load.type) {
-        case 'point':
-          if (x > load.position) shear -= Math.abs(load.magnitude); // Negative for downward load
-          break;
-        case 'distributed':
+        case 'point': {
           if (x > load.position) {
-            const effectiveLength = Math.min(x - load.position, load.length);
-            shear -= load.magnitude * effectiveLength; // Negative for downward load
+            shear -= Math.abs(load.magnitude);
           }
           break;
+        }
+        case 'distributed': {
+          if (x > load.position) {
+            const effectiveLength = Math.min(x - load.position, load.length);
+            shear -= Math.abs(load.magnitude) * effectiveLength;
+          }
+          break;
+        }
       }
     });
 
+    if (x > endSupportPosition) {
+      shear = 0;
+      loads.forEach(load => {
+        if (load.position > endSupportPosition && x > load.position) {
+          switch (load.type) {
+            case 'point': {
+              shear -= Math.abs(load.magnitude);
+              break;
+            }
+            case 'distributed': {
+              const effectiveLength = Math.min(x - load.position, load.length);
+              shear -= Math.abs(load.magnitude) * effectiveLength;
+              break;
+            }
+          }
+        }
+      });
+    }
+
     return Number(shear.toFixed(3));
-  }, [loads, reactions]);
+  }, [loads, reactions, startSupportPosition, endSupportPosition]);
 
   // Calculate bending moment at a position x
   const calculateMoment = useCallback((x: number): number => {
     let moment = 0;
 
+    if (x >= startSupportPosition) {
+      moment += reactions.reactionA * (x - startSupportPosition);
+    }
+
+    if (x >= endSupportPosition) {
+      moment += reactions.reactionB * (x - endSupportPosition);
+    }
+
     loads.forEach(load => {
       switch (load.type) {
-        case 'point':
-          if (x > load.position) moment -= Math.abs(load.magnitude) * (x - load.position); // Negative for downward load
-          break;
-        case 'distributed':
+        case 'point': {
           if (x > load.position) {
-            const effectiveLength = Math.min(x - load.position, load.length);
-            moment -= load.magnitude * effectiveLength * (effectiveLength / 2); // Negative for downward load
+            moment -= Math.abs(load.magnitude) * (x - load.position);
           }
           break;
-        case 'moment':
-          if (x > load.position) moment -= load.magnitude; // Negative moment for consistency
+        }
+        case 'distributed': {
+          if (x > load.position) {
+            const effectiveLength = Math.min(x - load.position, load.length);
+            const centroid = load.position + effectiveLength / 2;
+            moment -= Math.abs(load.magnitude) * effectiveLength * (x - centroid);
+          }
           break;
+        }
+        case 'moment': {
+          if (x > load.position) {
+            moment -= load.magnitude;
+          }
+          break;
+        }
       }
     });
 
-    moment += reactions.reactionA * x;
+    if (x > endSupportPosition) {
+      moment = 0;
+      loads.forEach(load => {
+        if (load.position > endSupportPosition && x > load.position) {
+          switch (load.type) {
+            case 'point': {
+              moment -= Math.abs(load.magnitude) * (x - load.position);
+              break;
+            }
+            case 'distributed': {
+              const effectiveLength = Math.min(x - load.position, load.length);
+              const centroid = load.position + effectiveLength / 2;
+              moment -= Math.abs(load.magnitude) * effectiveLength * (x - centroid);
+              break;
+            }
+            case 'moment': {
+              moment -= load.magnitude;
+              break;
+            }
+          }
+        }
+      });
+    }
+
     return Number(moment.toFixed(3));
-  }, [loads, reactions]);
+  }, [loads, reactions, startSupportPosition, endSupportPosition]);
 
   // Calculate deflection at a position x
-  const calculateDeflection = useCallback((x: number): number => {
-    let deflection = 0;
+  const calculateVirtualMoment = useCallback((x: number, a: number): number => {
+    if (x <= a) {
+      return x * (beamLength - a) / beamLength;
+    } else {
+      return a * (beamLength - x) / beamLength;
+    }
+  }, [beamLength]);
+
+  // Calculate deflection using virtual work method
+  const calculateMEI = useCallback((x: number): number => {
     const E = 200e9; // Young's Modulus (Pa)
     const I = 8.33e-6; // Moment of Inertia (m^4)
-
-    loads.forEach(load => {
-      switch (load.type) {
-        case 'point':
-          if (x > load.position) {
-            const a = load.position;
-            const b = beamLength - a;
-            deflection -= (load.magnitude * b * x * (beamLength ** 2 - b ** 2 - x ** 2)) / (6 * E * I * beamLength);
-          }
-          break;
-        case 'distributed':
-          if (x > load.position) {
-            const effectiveLength = Math.min(x - load.position, load.length);
-            deflection -= (load.magnitude * effectiveLength ** 3) / (24 * E * I);
-          }
-          break;
+    return calculateMoment(x) / (E * I);
+  }, [calculateMoment]);
+  
+  // Calculate reactions for conjugate beam
+  const calculateConjugateReactions = useCallback((): { Ra: number; Rb: number; Ma: number; Mb: number } => {
+    const numPoints = 1000;
+    const dx = beamLength / numPoints;
+    let totalLoad = 0;
+    let totalMoment = 0;
+    
+    // Calculate total load and moment from M/EI diagram
+    for (let i = 0; i <= numPoints; i++) {
+      const x = i * dx;
+      const mei = calculateMEI(x);
+      totalLoad += mei * dx;
+      totalMoment += mei * x * dx;
+    }
+  
+    let Ra = 0;
+    let Rb = 0;
+    let Ma = 0;
+    let Mb = 0;
+  
+    // Set reactions based on support conditions
+    if (startSupport === 'fixed' && endSupport === 'fixed') {
+      // For fixed-fixed beam
+      Ma = -totalMoment / 2;
+      Mb = Ma;
+      Ra = totalLoad / 2;
+      Rb = Ra;
+    } else if (startSupport === 'fixed' && endSupport === 'roller') {
+      // For fixed-roller beam
+      Ma = -totalMoment + totalLoad * beamLength / 2;
+      Ra = totalLoad;
+      Rb = 0;
+      Mb = 0;
+    } else if (startSupport === 'fixed') {
+      // For fixed-pin beam
+      Ma = -totalMoment + totalLoad * beamLength * 3/4;
+      Ra = totalLoad;
+      Rb = 0;
+      Mb = 0;
+    } else if (endSupport === 'fixed') {
+      // For pin-fixed beam
+      Mb = totalMoment - totalLoad * beamLength * 3/4;
+      Ra = totalLoad;
+      Rb = 0;
+      Ma = 0;
+    } else {
+      // For simply supported beam
+      Ra = totalLoad / 2;
+      Rb = Ra;
+      Ma = 0;
+      Mb = 0;
+    }
+  
+    return { Ra, Rb, Ma, Mb };
+  }, [beamLength, calculateMEI, startSupport, endSupport]);
+  
+  // Calculate deflection using conjugate beam method
+  const calculateDeflection = useCallback((x: number): number => {
+    const numPoints = 1000;
+    const dx = beamLength / numPoints;
+    const { Ra, Rb, Ma, Mb } = calculateConjugateReactions();
+    let deflection = 0;
+  
+    // Calculate deflection at point x using conjugate beam method
+    for (let i = 0; i <= numPoints; i++) {
+      const xi = i * dx;
+      if (xi <= x) {
+        // Add contribution from conjugate beam reactions and moments
+        deflection += Ra * xi * dx;
+        if (startSupport === 'fixed') {
+          deflection += Ma * dx;
+        }
+        
+        // Subtract M/EI area up to point x
+        const mei = calculateMEI(xi);
+        const lever = x - xi;
+        deflection -= mei * lever * dx;
       }
-    });
-
+    }
+  
+    // Apply boundary conditions
+    if (startSupport === 'fixed') {
+      const slope = calculateSlope(0);
+      deflection -= slope * x;
+    }
+    if (endSupport === 'fixed') {
+      const slope = calculateSlope(beamLength);
+      deflection -= slope * (beamLength - x);
+    }
+  
     return Number(deflection.toFixed(6));
-  }, [loads, beamLength]);
+  }, [beamLength, calculateMEI, calculateConjugateReactions, startSupport, endSupport]);
+  
+  // Helper function to calculate slope at a point
+  const calculateSlope = useCallback((x: number): number => {
+    const numPoints = 1000;
+    const dx = beamLength / numPoints;
+    const { Ra, Rb, Ma, Mb } = calculateConjugateReactions();
+    let slope = 0;
+  
+    for (let i = 0; i <= numPoints; i++) {
+      const xi = i * dx;
+      if (xi <= x) {
+        const mei = calculateMEI(xi);
+        slope += mei * dx;
+      }
+    }
+  
+    if (startSupport === 'fixed') {
+      slope -= Ra;
+    }
+    if (endSupport === 'fixed') {
+      slope += Rb;
+    }
+  
+    return slope;
+  }, [beamLength, calculateMEI, calculateConjugateReactions, startSupport, endSupport]);
+
 
   const generateDiagramData = useCallback((): DiagramPoint[] => {
     const points = 100;
