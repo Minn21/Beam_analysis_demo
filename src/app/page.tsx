@@ -1,4 +1,4 @@
-import BeamAnalysis from '@/components/BeamAnalysis'
+import BeamAnalysis from '@/components/beam-analysis/BeamAnalysis'
 
 export default function Home() {
   return (
